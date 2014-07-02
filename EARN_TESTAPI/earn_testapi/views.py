@@ -37,7 +37,7 @@ def get_institutions(request):
 
     """
     if len(DBSession.query(Institutions).all()) == 0:
-        return Response(status_code=404, body='No institutions found')
+        return Response(status_code=404, body='No institutions found\n')
     inst_body = etree.Element("Institutions")
     for institution in DBSession.query(Institutions).order_by(Institutions.institutionId):
         INST = etree.SubElement(inst_body, "institution")
@@ -81,15 +81,15 @@ def check_query(table, param, keys=False, creds=False, accounts=False):
             raise Exception("ID NOT FOUND")
     except Exception:
         if keys:
-            err_msg = "Keys were not found for Institution ID"
+            err_msg = "Keys were not found for Institution ID.\n"
         elif creds:
-            err_msg = "Credentials were not found for Institution ID"
+            err_msg = "Credentials were not found for Institution ID.\n"
         elif accounts:
-            err_msg = "Accounts were not found for Institution ID"
+            err_msg = "Accounts were not found for Institution ID.\n"
         else:
-            err_msg = "Given Institution ID was not found."
+            err_msg = "Given Institution ID was not found.\n"
     except ValueError:
-        err_msg = "Give Institution ID was not an integer"
+        err_msg = "Give Institution ID was not an integer.\n"
     return err_msg
 
 
@@ -208,7 +208,7 @@ def discover_add_accounts(request):
         try:
             input_creds[name.text] = value.text
         except AttributeError:
-            return Response(status_code=400, body='Did not format XML file correctly. Could not find element.')
+            return Response(status_code=400, body="Did not format XML file correctly. Could not find element.\n")
     inst_id = request.matchdict['institution_id']
     err_msg = check_query(Keys, inst_id, True)
     if err_msg != "":
@@ -222,9 +222,9 @@ def discover_add_accounts(request):
             raise Exception("Does not match keys!")
     except Exception:
         try:
-            return Response(status_code=401, body='Given credential fields do not match required keys.')
+            return Response(status_code=401, body="Given credential fields do not match required keys.\n")
         except TypeError:
-            return Response(status_code=401, body='Given credential fields do not match required keys.')
+            return Response(status_code=401, body="Given credential fields do not match required keys.\n")
     err_msg = check_query(Credentials, inst_id, False, True)
     if err_msg != "":
         return Response(status_code=404, body=err_msg)
@@ -248,7 +248,7 @@ def discover_add_accounts(request):
     if validation:
         print ("VALIDATION SUCCESSFUL!")
     else:
-        return Response(status_code=401, body='VALIDATION HAS FAILED')
+        return Response(status_code=401, body="VALIDATION HAS FAILED\n")
     err_msg = check_query(Accounts, user_identifier, False, False, True)
     if err_msg != "":
         return Response(status_code=404, body=err_msg)
@@ -268,7 +268,7 @@ def get_accounts(request):
     """
     accounts_query = DBSession.query(Accounts).all()
     if len(accounts_query) == 0:
-        return Response(status_code=404, body='No Accounts were found')
+        return Response(status_code=404, body="No Accounts were found\n")
     response = create_accounts_tree()
     print ('Accounts Response XML (path=/accounts)')
     print (etree.tostring(response, pretty_print=True))
@@ -305,7 +305,7 @@ def get_account(request):
         if len(try_query) == 0:
             raise Exception ("No Account Found")
     except Exception:
-        return Response(status_code=404, body='No account with this ID was found!')
+        return Response(status_code=404, body='No account with this ID was found!\n')
     response = create_accounts_tree(ac_id, True)
     print ('Account XML (path=/accounts/%s): ' % ac_id)
     print(etree.tostring(response, pretty_print=True))
@@ -324,7 +324,7 @@ def get_transactions(request):
         if len(try_query) == 0:
             raise Exception ("No Account Found")
     except Exception:
-        return Response(status_code=404, body='Account ID not found!')
+        return Response(status_code=404, body='Account ID not found!\n')
     account_id = request.matchdict['account_id']
     request_dates = request.params
     txnStartDate, txnEndDate = "", ""
@@ -332,9 +332,9 @@ def get_transactions(request):
         txnStartDate = request_dates['txnStartDate']
         txnStartDate = datetime.datetime.strptime(txnStartDate, "%Y-%m-%d")
     except KeyError:
-        return Response(status_code=400, body='No start date found!')
+        return Response(status_code=400, body='No start date found!\n')
     except ValueError:
-        return Response(status_code=400, body='Start date is not formatted correctly')
+        return Response(status_code=400, body='Start date is not formatted correctly\n')
     try:
         txnEndDate = request_dates['txnEndDate']
         if txnEndDate != "":
@@ -342,10 +342,10 @@ def get_transactions(request):
     except KeyError:
         pass
     except ValueError:
-        return Response(status_code=400, body='End date is not formatted correctly')
+        return Response(status_code=400, body='End date is not formatted correctly\n')
     trans = DBSession.query(Transactions).filter_by(accountId = account_id)
     if len(trans.all()) == 0:
-        return Response(status_code=404, body='No transactions were found')
+        return Response(status_code=404, body='No transactions were found\n')
     trans_body = etree.Element("TransactionList")
     for tran in trans:
         if (getattr(tran, 'postedDate')) >= txnStartDate:
@@ -379,7 +379,7 @@ def update_login_info(request):
         try:
             input_creds[name.text] = value.text
         except AttributeError:
-           return Response(status_code=400, body='Did not format XML file correctly. Could not find element.')
+           return Response(status_code=400, body='Did not format XML file correctly. Could not find element.\n')
     login_id = request.matchdict['login_id']
     err_msg = check_query(Credentials, login_id, False, True, True)
     if err_msg != "":
@@ -393,13 +393,13 @@ def update_login_info(request):
         if name not in names:
             validated = False
     if not validated:
-        return Response(status_code=404, body='Given wrong credential name(s) for this institution')
+        return Response(status_code=404, body='Given wrong credential name(s) for this institution\n')
     for cred in input_creds.keys():
         cred_query = DBSession.query(Credentials).filter_by(institutionLoginId = int(login_id))\
             .filter_by(name = cred)
         if len(cred_query.all()) == 0:
             return Response(status_code=404, body='Given wrong credential name for this id. Does not " \
-                                                            "exist in User_Credentials table')
+                                                            "exist in User_Credentials table\n')
         cred_query.update({"value" : input_creds[cred]})
     return Response(status_code=200)
 
@@ -415,19 +415,19 @@ def update_account_type(request):
         if len(try_query.all()) == 0:
             raise Exception("ID NOT FOUND")
     except Exception:
-        return Response(status_code=404, body='Account ID not found')
+        return Response(status_code=404, body='Account ID not found\n')
     account = DBSession.query(Accounts).filter_by(accountId = int(account_id))
     if account.first().bankingAccountType != None:
-        return Response(status_code=403, body='Changing between concrete account types is not supported')
+        return Response(status_code=403, body='Changing between concrete account types is not supported\n')
     try:
         root = etree.fromstring(request.body)
         accountType = (root.getchildren()[0].text).upper()
     except:
-        return Response(status_code=400, body='Did not format XML file correctly. Could not find element.')
+        return Response(status_code=400, body='Did not format XML file correctly. Could not find element.\n')
     try:
         account.update({"bankingAccountType" : accountType})
     except:
-        return Response(status_code=400, body='Given account type is not one of the possible banking account types!')
+        return Response(status_code=400, body='Given account type is not one of the possible banking account types!\n')
     return Response(status_code=200)
 
 @customer_account.delete()
@@ -441,7 +441,7 @@ def delete_account(request):
         if len(try_query.all()) == 0:
             raise Exception("ID NOT FOUND")
     except Exception:
-        return Response(status_code=404, body='Account ID not found')
+        return Response(status_code=404, body='Account ID not found\n')
     transactions = DBSession.query(Transactions).filter_by(accountId = account_id)
     if (len(transactions.all())) != 0:
         transactions.delete()
