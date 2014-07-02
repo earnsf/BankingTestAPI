@@ -340,7 +340,7 @@ def get_transactions(request):
                         else:
                             label.text = str(value)
     if not matched:
-        trans_body.remove()
+        return Response(status_code=200, body="No transactions within requested dates were found!\n")
     return Response(status_code=200, body=etree.tostring(trans_body, pretty_print=True))
 
 update_login = Service('Update Login', path='/logins/{login_id}')
