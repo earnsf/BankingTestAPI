@@ -56,8 +56,6 @@ def get_institutions(request):
         if institution.virtual is not None:
             VIRTUAL = etree.SubElement(INST, "virtual")
             VIRTUAL.text = str(True).lower() if (institution.virtual == 1) else str(False).lower()
-    print ("Institutions Response XML (path=/institutions): ")
-    print (etree.tostring(inst_body, pretty_print=True))
     return Response(status_code=200, body=etree.tostring(inst_body, pretty_print=True))
 
 def check_query(table, param, keys=False, creds=False, accounts=False):
@@ -141,8 +139,6 @@ def get_inst_details(request):
                 label.text = str(value)
     key_query = DBSession.query(Keys).filter_by(institutionId = int(inst_id)).order_by(Keys.displayOrder)
     if len(key_query.all()) == 0:
-        print ('Institutions Response XML (path=/institutions/%s): ' % inst_id)
-        print (etree.tostring(inst_body, pretty_print=True))
         return Response(status_code=200, body=etree.tostring(inst_body, pretty_print=True))
     keys_body = etree.SubElement(inst_body, "keys")
     no_keys = True
@@ -164,8 +160,6 @@ def get_inst_details(request):
             no_keys = False
     if no_keys:
         inst_body.remove(keys_body)
-    print ('Institutions Response XML (path=/institutions/%s): ' % inst_id)
-    print (etree.tostring(inst_body, pretty_print=True))
     return Response(status_code=200, body=etree.tostring(inst_body, pretty_print=True))
 
 def create_accounts_tree(value=None, id=False):
@@ -238,24 +232,15 @@ def discover_add_accounts(request):
     creds_query = DBSession.query(Credentials).filter_by(institutionId = inst_id).\
         filter_by(institutionLoginId = user_identifier)
     validation = True
-    print("Testing for Validation ...")
     for cred in creds_query:
         if input_creds[cred.name] != cred.value:
             validation = False
-            print("Invalidated for " + cred.name + "!")
-        else:
-            print("Validated for " + cred.name + "!")
-    if validation:
-        print ("VALIDATION SUCCESSFUL!")
-    else:
+    if not validation:
         return Response(status_code=401, body="VALIDATION HAS FAILED\n")
     err_msg = check_query(Accounts, user_identifier, False, False, True)
     if err_msg != "":
         return Response(status_code=404, body=err_msg)
     response = create_accounts_tree(user_identifier)
-    print ('Response XML (path=/institutions/%s/logins): ' % inst_id)
-    print ('%s: %s, InstitutionLoginId : %s' % (inst_keys[0], unique_key, user_identifier))
-    print(etree.tostring(response, pretty_print=True))
     return Response(status_code=201, body=etree.tostring(response, pretty_print=True))
 
 customer_accounts = Service(name='Customer Accounts', path='/accounts')
@@ -270,8 +255,6 @@ def get_accounts(request):
     if len(accounts_query) == 0:
         return Response(status_code=404, body="No Accounts were found\n")
     response = create_accounts_tree()
-    print ('Accounts Response XML (path=/accounts)')
-    print (etree.tostring(response, pretty_print=True))
     return Response(status_code=200, body=etree.tostring(response, pretty_print=True))
 
 login_accounts = Service(name='Login Accounts', path='/logins/{login_id}/accounts')
@@ -287,9 +270,6 @@ def get_login_accounts(request):
     if err_msg != "":
         return Response(status_code=404, body=err_msg)
     response = create_accounts_tree(login_id)
-    print ('Login Accounts XML (path=/logins/%s/accounts): ' % login_id)
-    print ('InstitutionLoginId : %s' % login_id)
-    print(etree.tostring(response, pretty_print=True))
     return Response(status_code=200, body=etree.tostring(response, pretty_print=True))
 
 customer_account = Service(name='Customer Account', path='/accounts/{account_id}')
@@ -307,8 +287,6 @@ def get_account(request):
     except Exception:
         return Response(status_code=404, body='No account with this ID was found!\n')
     response = create_accounts_tree(ac_id, True)
-    print ('Account XML (path=/accounts/%s): ' % ac_id)
-    print(etree.tostring(response, pretty_print=True))
     return Response(status_code=200, body=etree.tostring(response, pretty_print=True))
 
 transactions = Service(name='Transactions', path='/accounts/{account_id}/transactions')
@@ -347,10 +325,12 @@ def get_transactions(request):
     if len(trans.all()) == 0:
         return Response(status_code=404, body='No transactions were found\n')
     trans_body = etree.Element("TransactionList")
+    matched = False
     for tran in trans:
         if (getattr(tran, 'postedDate')) >= txnStartDate:
             if (txnEndDate == "") or (txnEndDate != "" and getattr(tran, 'postedDate') <= txnEndDate):
                 tran_body = etree.SubElement(trans_body, "Transaction")
+                matched = True
                 for column in tran.__table__.columns:
                     value = getattr(tran, column.name)
                     if value != None and column.name != "accountId":
@@ -359,8 +339,8 @@ def get_transactions(request):
                             label.text = str(True).lower() if (value == 1) else str(False).lower()
                         else:
                             label.text = str(value)
-    print ('Transactions XML (path=/accounts/%s/transactions)' % account_id)
-    print (etree.tostring(trans_body, pretty_print=True))
+    if not matched:
+        trans_body.remove()
     return Response(status_code=200, body=etree.tostring(trans_body, pretty_print=True))
 
 update_login = Service('Update Login', path='/logins/{login_id}')
