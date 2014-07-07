@@ -5,6 +5,7 @@ from sqlalchemy.exc import DBAPIError
 from lxml import etree
 import datetime
 import collections
+import io
 
 from .models import (
     DBSession,
@@ -13,6 +14,7 @@ from .models import (
     Addresses,
     Keys,
     Credentials,
+    Logins,
     Accounts,
     Transactions
     )
@@ -37,7 +39,7 @@ def get_institutions(request):
 
     """
     if len(DBSession.query(Institutions).all()) == 0:
-        return Response(status_code=404, body='No institutions found\n')
+        return Response(status_code=200, body='')
     inst_body = etree.Element("Institutions")
     for institution in DBSession.query(Institutions).order_by(Institutions.institutionId):
         INST = etree.SubElement(inst_body, "institution")
@@ -194,13 +196,14 @@ def discover_add_accounts(request):
     Unique key like "Username" must be the first in displayOrder
     """
     input_creds = {}
-    root = etree.fromstring(request.body)
-    creds = root.getchildren()[0]
-    for cred in creds.getchildren():
-        name = cred.find('name')
-        value = cred.find('value')
+    root = etree.parse(io.BytesIO(request.body))
+    names = root.xpath('//ns:name', namespaces={'ns':'http://schema.intuit.com/platform/fdatafeed/institutionlogin/v1'})
+    values = root.xpath('//ns:value', namespaces={'ns':'http://schema.intuit.com/platform/fdatafeed/institutionlogin/v1'})
+    if len(names) != len(values):
+        return Response(status_code=400, body="Did not format XML file correctly. Could not find element.\n")
+    for i in range(len(names)):
         try:
-            input_creds[name.text] = value.text
+            input_creds[names[i].text] = values[i].text
         except AttributeError:
             return Response(status_code=400, body="Did not format XML file correctly. Could not find element.\n")
     inst_id = request.matchdict['institution_id']
@@ -239,7 +242,7 @@ def discover_add_accounts(request):
         return Response(status_code=401, body="VALIDATION HAS FAILED\n")
     err_msg = check_query(Accounts, user_identifier, False, False, True)
     if err_msg != "":
-        return Response(status_code=404, body=err_msg)
+        return Response(status_code=201, body='')
     response = create_accounts_tree(user_identifier)
     return Response(status_code=201, body=etree.tostring(response, pretty_print=True))
 
@@ -253,7 +256,7 @@ def get_accounts(request):
     """
     accounts_query = DBSession.query(Accounts).all()
     if len(accounts_query) == 0:
-        return Response(status_code=404, body="No Accounts were found\n")
+        return Response(status_code=200, body="")
     response = create_accounts_tree()
     return Response(status_code=200, body=etree.tostring(response, pretty_print=True))
 
@@ -266,9 +269,12 @@ def get_login_accounts(request):
 
     """
     login_id = request.matchdict['login_id']
+    try_logins = DBSession.query(Logins).filter_by(loginId = login_id).all()
+    if len(try_logins) == 0:
+        return Response(status_code=404, body="Login not found!\n")
     err_msg = check_query(Accounts, login_id, False, False, True)
     if err_msg != "":
-        return Response(status_code=404, body=err_msg)
+        return Response(status_code=200, body="")
     response = create_accounts_tree(login_id)
     return Response(status_code=200, body=etree.tostring(response, pretty_print=True))
 
@@ -323,7 +329,7 @@ def get_transactions(request):
         return Response(status_code=400, body='End date is not formatted correctly\n')
     trans = DBSession.query(Transactions).filter_by(accountId = account_id)
     if len(trans.all()) == 0:
-        return Response(status_code=404, body='No transactions were found\n')
+        return Response(status_code=200, body='')
     trans_body = etree.Element("TransactionList")
     matched = False
     for tran in trans:
@@ -351,15 +357,16 @@ def update_login_info(request):
 
     """
     input_creds = {}
-    root = etree.fromstring(request.body)
-    creds = root.getchildren()[0]
-    for cred in creds.getchildren():
-        name = cred.find('name')
-        value = cred.find('value')
+    root = etree.parse(io.BytesIO(request.body))
+    names = root.xpath('//ns:name', namespaces={'ns':'http://schema.intuit.com/platform/fdatafeed/institutionlogin/v1'})
+    values = root.xpath('//ns:value', namespaces={'ns':'http://schema.intuit.com/platform/fdatafeed/institutionlogin/v1'})
+    if len(names) != len(values):
+        return Response(status_code=400, body="Did not format XML file correctly. Could not find element.\n")
+    for i in range(len(names)):
         try:
-            input_creds[name.text] = value.text
+            input_creds[names[i].text] = values[i].text
         except AttributeError:
-           return Response(status_code=400, body='Did not format XML file correctly. Could not find element.\n')
+            return Response(status_code=400, body="Did not format XML file correctly. Could not find element.\n")
     login_id = request.matchdict['login_id']
     err_msg = check_query(Credentials, login_id, False, True, True)
     if err_msg != "":

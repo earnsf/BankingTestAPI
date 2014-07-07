@@ -39,6 +39,9 @@ class Keys(DeferredReflection, Base):
 class Credentials(DeferredReflection, Base):
     __tablename__ = 'user_credentials'
 
+class Logins(DeferredReflection, Base):
+    __tablename__ = 'logins'
+
 class Accounts(DeferredReflection, Base):
     __tablename__ = 'accounts'
 
