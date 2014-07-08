@@ -54,6 +54,11 @@ def add_institution(request):
     # I'm trying to commit and not roll back but DBSession gives me an error (AssertionError: Transaction must be committed using the transaction manager) That's why I'm using transaction.commit.
 
 """
+Go into directory of add_institution.xml
+curl -v -X POST --header "Content-Type:application/xml" -d @add_institution.xml "http://ec2-54-86-195-141.compute-1.amazonaws.com:6543/institutions"
+"""
+
+"""
 2014-07-08 19:55:05,780 INFO  [sqlalchemy.engine.base.Engine][Dummy-2] BEGIN (implicit)
 2014-07-08 19:55:05,780 INFO  [sqlalchemy.engine.base.Engine][Dummy-2] insert into institutions (institutionName, homeUrl) values ('CC Bank', 'http://www.intuit.com')
 2014-07-08 19:55:05,781 INFO  [sqlalchemy.engine.base.Engine][Dummy-2] ()
