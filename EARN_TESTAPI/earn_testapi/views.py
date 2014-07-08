@@ -6,6 +6,7 @@ from lxml import etree
 import datetime
 import collections
 import io
+import transaction
 
 from .models import (
     DBSession,
@@ -32,6 +33,41 @@ def my_view(request):
 # Using Cornice Framework
 
 all_institutions = Service(name='all_institutions', path='/institutions')
+
+@all_institutions.post(content_type="application/xml")
+def add_institution(request):
+    """This call adds an institution to the list of institutions
+    """
+    _data = {}
+    root = etree.parse(io.BytesIO(request.body))
+    for column in Institutions.__table__.columns._data.keys():
+        expr = '//ns:' + column
+        col = root.xpath(expr, namespaces={'ns':'http://schema.intuit.com/platform/fdatafeed/institutionlogin/v1'})
+        if len(col) > 1:
+            return Response(status_code=400, body="Found multiple values for one column.\n")
+        if col:
+            _data[column] = col[0].text
+    columns = tuple([col for col in _data.keys()])
+    values = tuple([val for val in _data.values()])
+    clause = "insert into institutions %s values %s" % (str(columns).replace("'", ""), str(values))
+    
+    # I'm trying to commit and not roll back but DBSession gives me an error (AssertionError: Transaction must be committed using the transaction manager) That's why I'm using transaction.commit.
+
+"""
+2014-07-08 19:55:05,780 INFO  [sqlalchemy.engine.base.Engine][Dummy-2] BEGIN (implicit)
+2014-07-08 19:55:05,780 INFO  [sqlalchemy.engine.base.Engine][Dummy-2] insert into institutions (institutionName, homeUrl) values ('CC Bank', 'http://www.intuit.com')
+2014-07-08 19:55:05,781 INFO  [sqlalchemy.engine.base.Engine][Dummy-2] ()
+2014-07-08 19:55:05,781 INFO  [sqlalchemy.engine.base.Engine][Dummy-2] ROLLBACK
+
+"""
+# This above, is what I"m getting.
+    DBSession.execute(clause)
+    transaction.commit()
+
+           
+    # iterate through the columns of Institutions Table and root.xpath()
+    # Put them into table Institutions
+    
 
 @all_institutions.get()
 def get_institutions(request):
@@ -60,6 +96,18 @@ def get_institutions(request):
             VIRTUAL.text = str(True).lower() if (institution.virtual == 1) else str(False).lower()
     return Response(status_code=200, body=etree.tostring(inst_body, pretty_print=True))
 
+addresses = Service("Adding addresses", path='/{institutionId}/address')
+
+@addresses.post()
+def add_address(request):
+    # Add address
+    return ()
+keys = Service("Adding keys", path='/{institutionId}/keys')
+
+@keys.post()
+def add_key(request):
+    # Add key
+    return ()
 def check_query(table, param, keys=False, creds=False, accounts=False):
     """ Checks the query given parameter and table to determine if it's empty
 
