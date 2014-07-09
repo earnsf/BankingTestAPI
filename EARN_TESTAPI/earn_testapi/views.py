@@ -35,6 +35,9 @@ def my_view(request):
 # Using Cornice Framework
 
 def _addtoData(root, table):
+    """ Iterates through requested xml file and adds values to _data dict.
+
+    """
     _data = {}
     for column in table.__table__.columns._data.keys():
         expr = "//*[local-name() = '%s']" % column
