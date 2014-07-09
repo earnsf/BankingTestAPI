@@ -1,3 +1,5 @@
+__author__ = 'Phil Jay'
+
 from pyramid.response import Response
 from pyramid.view import view_config
 from cornice import Service
@@ -6,7 +8,7 @@ from lxml import etree
 import datetime
 import collections
 import io
-import transaction
+from sqlalchemy import desc
 
 from .models import (
     DBSession,
@@ -32,47 +34,64 @@ def my_view(request):
 
 # Using Cornice Framework
 
-all_institutions = Service(name='all_institutions', path='/institutions')
+def _addtoData(root, table):
+    _data = {}
+    for column in table.__table__.columns._data.keys():
+        expr = "//*[local-name() = '%s']" % column
+        col = root.xpath(expr)
+        if len(col) > 1:
+            return Response(status_code=400, body="Found multiple values for one column.\n")
+        if col and column != "institutionId":
+            _data[column] = col[0].text
+    return _data
 
-@all_institutions.post(content_type="application/xml")
+add_institutions = Service(name='all_institutions', path='/add-inst')
+
+@add_institutions.post(content_type="application/xml")
 def add_institution(request):
     """This call adds an institution to the list of institutions
     """
-    _data = {}
     root = etree.parse(io.BytesIO(request.body))
-    for column in Institutions.__table__.columns._data.keys():
-        expr = '//ns:' + column
-        col = root.xpath(expr, namespaces={'ns':'http://schema.intuit.com/platform/fdatafeed/institutionlogin/v1'})
-        if len(col) > 1:
-            return Response(status_code=400, body="Found multiple values for one column.\n")
-        if col:
-            _data[column] = col[0].text
+    _data = _addtoData(root, Institutions)
+    if len(_data) == 0:
+        return Response(status_code=400, body="Empty request\n")
     columns = tuple([col for col in _data.keys()])
     values = tuple([val for val in _data.values()])
     clause = "insert into institutions %s values %s" % (str(columns).replace("'", ""), str(values))
-    
-    # I'm trying to commit and not roll back but DBSession gives me an error (AssertionError: Transaction must be committed using the transaction manager) That's why I'm using transaction.commit.
-
-"""
-Go into directory of add_institution.xml
-curl -v -X POST --header "Content-Type:application/xml" -d @add_institution.xml "http://ec2-54-86-195-141.compute-1.amazonaws.com:6543/institutions"
-"""
-
-"""
-2014-07-08 19:55:05,780 INFO  [sqlalchemy.engine.base.Engine][Dummy-2] BEGIN (implicit)
-2014-07-08 19:55:05,780 INFO  [sqlalchemy.engine.base.Engine][Dummy-2] insert into institutions (institutionName, homeUrl) values ('CC Bank', 'http://www.intuit.com')
-2014-07-08 19:55:05,781 INFO  [sqlalchemy.engine.base.Engine][Dummy-2] ()
-2014-07-08 19:55:05,781 INFO  [sqlalchemy.engine.base.Engine][Dummy-2] ROLLBACK
-
-"""
-# This above, is what I"m getting.
     DBSession.execute(clause)
-    transaction.commit()
+    DBSession.execute("commit")
+    _data.clear()
 
-           
-    # iterate through the columns of Institutions Table and root.xpath()
-    # Put them into table Institutions
+    # Adding address
+    this_institutionId = DBSession.query(Institutions).order_by(desc(Institutions.institutionId)).first().institutionId
+    _data = _addtoData(root, Addresses)
+    if len(_data) != 0:
+        columns = tuple([col for col in _data.keys()]) + ('institutionId',)
+        values = tuple([val for val in _data.values()]) + (int(this_institutionId),)
+        clause = "insert into addresses %s values %s" % (str(columns).replace("'", ""), str(values))
+        DBSession.execute(clause)
+        DBSession.execute("commit")
+    _data.clear()
     
+    # Adding keys
+    expr = "//*[local-name() = 'key']"
+    keys = root.xpath(expr)
+    if len(keys) != 0:
+        for key in keys:
+            for child in key.getchildren():
+                if child.tag in Keys.__table__.columns._data.keys():
+                    _data[child.tag] = child.text
+            if len(_data) != 0:
+                columns = tuple([col for col in _data.keys()]) + ('institutionId',)
+                values = tuple([val for val in _data.values()]) + (int(this_institutionId),)
+                clause = "insert into inst_keys %s values %s" % (str(columns).replace("'", ""), str(values))
+                DBSession.execute(clause)
+                DBSession.execute("commit")  
+                _data.clear()
+
+    return Response(status_code=200)
+
+all_institutions = Service(name='all_institutions', path='/institutions')
 
 @all_institutions.get()
 def get_institutions(request):
@@ -101,18 +120,43 @@ def get_institutions(request):
             VIRTUAL.text = str(True).lower() if (institution.virtual == 1) else str(False).lower()
     return Response(status_code=200, body=etree.tostring(inst_body, pretty_print=True))
 
-addresses = Service("Adding addresses", path='/{institutionId}/address')
+institution_login = Service(name='Add Login', path='/institutions/{institution_id}/add-login')
 
-@addresses.post()
-def add_address(request):
-    # Add address
-    return ()
-keys = Service("Adding keys", path='/{institutionId}/keys')
+@institution_login.post(content_type="application/xml")
+def add_login_credentials(request):
+    """ This call adds a login ID and assigns the given credentials to it.
+    """
+    inst_id = request.matchdict['institution_id']
+    
+    # Add a login ID
+    clause = "insert into logins (institutionId) values (%d)" % int(inst_id)
+    DBSession.execute(clause)
+    DBSession.execute("commit")
+    this_loginId = DBSession.query(Logins).order_by(desc(Logins.loginId)).first().loginId
+    
+    # Add credentials
+    required_creds = [key.name for key in DBSession.query(Keys).filter_by(institutionId = int(inst_id)).order_by(Keys.displayOrder)]
+    root = etree.parse(io.BytesIO(request.body))
+    expr = "//*[local-name() = 'credential']"
+    creds = root.xpath(expr)
+    if len(creds) != len(required_creds):
+        return Response(status_code=400, body="Badly formed request.\n")
+    _data = {}
+    for cred in creds:
+        for child in cred.getchildren():
+            if child.tag == "name":
+                if child.text not in required_creds:
+                    return Response(status_code=400, body="Badly formed request. Given fields do not match required keys\n")
+            _data[child.tag] = child.text
+        columns = tuple([col for col in _data.keys()]) + ('institutionId', 'institutionLoginId')
+        values = tuple([val for val in _data.values()]) + (int(inst_id), int(this_loginId))
+        clause = "insert into user_credentials %s values %s" %(str(columns).replace("'", ""), str(values))
+        DBSession.execute(clause)
+        _data.clear()
+    DBSession.execute("commit")
+            
+    return Response(status_code=200, body="")
 
-@keys.post()
-def add_key(request):
-    # Add key
-    return ()
 def check_query(table, param, keys=False, creds=False, accounts=False):
     """ Checks the query given parameter and table to determine if it's empty
 
@@ -144,7 +188,6 @@ def check_query(table, param, keys=False, creds=False, accounts=False):
     except ValueError:
         err_msg = "Give Institution ID was not an integer.\n"
     return err_msg
-
 
 institution_details = Service(name='institution_details', path='/institutions/{institution_id}')
 
@@ -313,6 +356,34 @@ def get_accounts(request):
     response = create_accounts_tree()
     return Response(status_code=200, body=etree.tostring(response, pretty_print=True))
 
+add_accounts = Service(name='Add Accounts', path='/logins/{login_id}/add-acct')
+
+@add_accounts.post()
+def add_account(request):
+    """ Adds an account to a list of accounts.
+    """
+    login_id = request.matchdict['login_id']
+    login_query = DBSession.query(Logins).filter_by(loginId = login_id)
+    if len(login_query.all()) == 0:
+        return Response(status_code=404, body="Login ID not found\n")
+    institution_id = login_query.first().institutionId
+    root = etree.parse(io.BytesIO(request.body))
+    _data = {}
+    for column in Accounts.__table__.columns._data.keys():
+        expr = "//*[local-name() = '%s']" % column
+        col = root.xpath(expr)
+        if len(col) > 1:
+            return Response(status_code=400, body="Found multiple values for one column.\n")
+        if col and column not in ["institutionId", "institutionLoginId", "accountId"]:
+            _data[column] = col[0].text
+    columns = tuple([col for col in _data.keys()]) + ('institutionId', 'institutionLoginId')
+    values = tuple([val for val in _data.values()]) + (int(institution_id), int(login_id))
+    clause = "insert into accounts %s values %s" % (str(columns).replace("'", ""), str(values))
+    DBSession.execute(clause)
+    DBSession.execute("commit")
+    _data.clear()
+    return Response(status_code=200, body="")
+
 login_accounts = Service(name='Login Accounts', path='/logins/{login_id}/accounts')
 
 @login_accounts.get()
@@ -347,6 +418,39 @@ def get_account(request):
         return Response(status_code=404, body='No account with this ID was found!\n')
     response = create_accounts_tree(ac_id, True)
     return Response(status_code=200, body=etree.tostring(response, pretty_print=True))
+
+add_transactions = Service(name="Add Transactions", path='/accounts/{account_id}/add-txn')
+
+@add_transactions.post()
+def add_transaction(request):
+    """ Adds a transaction to a list of transactions.
+    """
+    ac_id = request.matchdict['account_id']
+    try:
+        try_query = DBSession.query(Accounts).filter_by(accountId = int(ac_id)).all()
+        if len(try_query) == 0:
+            raise Exception ("No account found!")
+    except Exception:
+        return Response(status_code=404, body='No account with this ID was found!\n')
+    root = etree.parse(io.BytesIO(request.body))
+    _data = {}
+    for column in Transactions.__table__.columns._data.keys():
+        expr = "//*[local-name() = '%s']" % column
+        col = root.xpath(expr)
+        if len(col) > 1:
+            return Response(status_code=400, body="Found multiple values for one column.\n")
+        if col and column not in ["id", "accountId"]:
+            _data[column] = col[0].text
+    columns = tuple([col for col in _data.keys()]) + ('accountId',)
+    if "postedDate" not in columns:
+        return Response(status_code=400, body='Must have a posted date!\n')
+    values = tuple([val for val in _data.values()]) + (int(ac_id),)
+    clause = "insert into transactions %s values %s" % (str(columns).replace("'", ""), str(values))
+    DBSession.execute(clause)
+    DBSession.execute("commit")
+    _data.clear()
+    
+    return Response(status_code=200, body="")
 
 transactions = Service(name='Transactions', path='/accounts/{account_id}/transactions')
 
