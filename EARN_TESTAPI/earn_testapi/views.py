@@ -12,7 +12,6 @@ from sqlalchemy import desc
 
 from .models import (
     DBSession,
-    MyModel,
     Institutions,
     Addresses,
     Keys,
@@ -27,7 +26,7 @@ from .models import (
 @view_config(route_name='home', renderer='templates/mytemplate.pt')
 def my_view(request):
     try:
-        one = DBSession.query(MyModel).filter(MyModel.name == 'one').all()
+        one = DBSession.query(Institutions).all()
     except DBAPIError:
         return Response(conn_err_msg, content_type='text/plain', status_int=404)
     return {'one': one, 'project': 'EARN_TESTAPI'}
@@ -42,15 +41,18 @@ def _addtoData(root, table):
     for column in table.__table__.columns._data.keys():
         expr = "//*[local-name() = '%s']" % column
         col = root.xpath(expr)
-        if len(col) > 1:
+        if len(col) > 1 and column != "status":
             return Response(status_code=400, body="Found multiple values for one column.\n")
-        if col and column != "institutionId":
+        if column == "status":
+            if col[0].getparent().tag == "Institution":
+                _data[column] = col[0].text
+        if col and column not in [ "status", "institutionId" ]:
             _data[column] = col[0].text
     return _data
 
-add_institutions = Service(name='all_institutions', path='/add-inst')
+all_institutions = Service(name='all_institutions', path='/institutions')
 
-@add_institutions.post(content_type="application/xml")
+@all_institutions.post(content_type="application/xml")
 def add_institution(request):
     """This call adds an institution to the list of institutions
     """
@@ -91,10 +93,12 @@ def add_institution(request):
                 DBSession.execute(clause)
                 DBSession.execute("commit")  
                 _data.clear()
+    
+    # Return the generated institution ID
+    response = etree.Element("Institution_ID")
+    response.text = str(this_institutionId)
 
-    return Response(status_code=200)
-
-all_institutions = Service(name='all_institutions', path='/institutions')
+    return Response(status_code=200, body=etree.tostring(response)+"\n")
 
 @all_institutions.get()
 def get_institutions(request):
@@ -122,43 +126,6 @@ def get_institutions(request):
             VIRTUAL = etree.SubElement(INST, "virtual")
             VIRTUAL.text = str(True).lower() if (institution.virtual == 1) else str(False).lower()
     return Response(status_code=200, body=etree.tostring(inst_body, pretty_print=True))
-
-institution_login = Service(name='Add Login', path='/institutions/{institution_id}/add-login')
-
-@institution_login.post(content_type="application/xml")
-def add_login_credentials(request):
-    """ This call adds a login ID and assigns the given credentials to it.
-    """
-    inst_id = request.matchdict['institution_id']
-    
-    # Add a login ID
-    clause = "insert into logins (institutionId) values (%d)" % int(inst_id)
-    DBSession.execute(clause)
-    DBSession.execute("commit")
-    this_loginId = DBSession.query(Logins).order_by(desc(Logins.loginId)).first().loginId
-    
-    # Add credentials
-    required_creds = [key.name for key in DBSession.query(Keys).filter_by(institutionId = int(inst_id)).order_by(Keys.displayOrder)]
-    root = etree.parse(io.BytesIO(request.body))
-    expr = "//*[local-name() = 'credential']"
-    creds = root.xpath(expr)
-    if len(creds) != len(required_creds):
-        return Response(status_code=400, body="Badly formed request.\n")
-    _data = {}
-    for cred in creds:
-        for child in cred.getchildren():
-            if child.tag == "name":
-                if child.text not in required_creds:
-                    return Response(status_code=400, body="Badly formed request. Given fields do not match required keys\n")
-            _data[child.tag] = child.text
-        columns = tuple([col for col in _data.keys()]) + ('institutionId', 'institutionLoginId')
-        values = tuple([val for val in _data.values()]) + (int(inst_id), int(this_loginId))
-        clause = "insert into user_credentials %s values %s" %(str(columns).replace("'", ""), str(values))
-        DBSession.execute(clause)
-        _data.clear()
-    DBSession.execute("commit")
-            
-    return Response(status_code=200, body="")
 
 def check_query(table, param, keys=False, creds=False, accounts=False):
     """ Checks the query given parameter and table to determine if it's empty
@@ -263,6 +230,48 @@ def get_inst_details(request):
         inst_body.remove(keys_body)
     return Response(status_code=200, body=etree.tostring(inst_body, pretty_print=True))
 
+
+institution_login = Service(name='Add Login', path='/institutions/{institution_id}/login')
+
+@institution_login.post(content_type="application/xml")
+def add_login_credentials(request):
+    """ This call adds a login ID and assigns the given credentials to it.
+    """
+    inst_id = request.matchdict['institution_id']
+    
+    # Add a login ID
+    clause = "insert into logins (institutionId) values (%d)" % int(inst_id)
+    DBSession.execute(clause)
+    DBSession.execute("commit")
+    this_loginId = DBSession.query(Logins).order_by(desc(Logins.loginId)).first().loginId
+    
+    # Add credentials
+    required_creds = [key.name for key in DBSession.query(Keys).filter_by(institutionId = int(inst_id)).order_by(Keys.displayOrder)]
+    root = etree.parse(io.BytesIO(request.body))
+    expr = "//*[local-name() = 'credential']"
+    creds = root.xpath(expr)
+    if len(creds) != len(required_creds):
+        return Response(status_code=400, body="Badly formed request.\n")
+    _data = {}
+    for cred in creds:
+        for child in cred.getchildren():
+            if child.tag == "name":
+                if child.text not in required_creds:
+                    return Response(status_code=400, body="Badly formed request. Given fields do not match required keys\n")
+            _data[child.tag] = child.text
+        columns = tuple([col for col in _data.keys()]) + ('institutionId', 'institutionLoginId')
+        values = tuple([val for val in _data.values()]) + (int(inst_id), int(this_loginId))
+        clause = "insert into user_credentials %s values %s" %(str(columns).replace("'", ""), str(values))
+        DBSession.execute(clause)
+        _data.clear()
+    DBSession.execute("commit")
+    
+    # returns an auto-generated login ID
+    response = etree.Element("Login_ID")
+    response.text = str(this_loginId)
+
+    return Response(status_code=200, body=etree.tostring(response)+"\n")
+
 def create_accounts_tree(value=None, id=False):
     """ Creates a etree of accounts filtered by login ID
 
@@ -359,9 +368,9 @@ def get_accounts(request):
     response = create_accounts_tree()
     return Response(status_code=200, body=etree.tostring(response, pretty_print=True))
 
-add_accounts = Service(name='Add Accounts', path='/logins/{login_id}/add-acct')
+login_accounts = Service(name='Login Accounts', path='/logins/{login_id}/accounts')
 
-@add_accounts.post()
+@login_accounts.post()
 def add_account(request):
     """ Adds an account to a list of accounts.
     """
@@ -385,9 +394,13 @@ def add_account(request):
     DBSession.execute(clause)
     DBSession.execute("commit")
     _data.clear()
-    return Response(status_code=200, body="")
 
-login_accounts = Service(name='Login Accounts', path='/logins/{login_id}/accounts')
+    # Returns an auto-generated account_id
+    this_accountId = DBSession.query(Accounts).order_by(desc(Accounts.accountId)).first().accountId
+    response = etree.Element("Account_ID")
+    response.text = str(this_accountId)
+
+    return Response(status_code=200, body=etree.tostring(response)+"\n")
 
 @login_accounts.get()
 def get_login_accounts(request):
@@ -422,9 +435,9 @@ def get_account(request):
     response = create_accounts_tree(ac_id, True)
     return Response(status_code=200, body=etree.tostring(response, pretty_print=True))
 
-add_transactions = Service(name="Add Transactions", path='/accounts/{account_id}/add-txn')
+transactions = Service(name='Transactions', path='/accounts/{account_id}/transactions')
 
-@add_transactions.post()
+@transactions.post()
 def add_transaction(request):
     """ Adds a transaction to a list of transactions.
     """
@@ -453,9 +466,12 @@ def add_transaction(request):
     DBSession.execute("commit")
     _data.clear()
     
-    return Response(status_code=200, body="")
+    # Returns an auto-generated transaction ID
+    trans_id = DBSession.query(Transactions).order_by(desc(Transactions.id)).first().id
+    response = etree.Element("Transaction_ID")
+    response.text = str(trans_id)
 
-transactions = Service(name='Transactions', path='/accounts/{account_id}/transactions')
+    return Response(status_code=200, body=etree.tostring(response)+"\n")
 
 @transactions.get()
 def get_transactions(request):
