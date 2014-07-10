@@ -60,7 +60,7 @@ class AggcatClient(object):
         ``objectify`` (Boolean) This is a BETA functionality. It will objectify the XML returned from
         intuit into standard python objects so you don't have to mess with XML. Default: ``True``
     """
-    def __init__(self, objectify=True):
+    def __init__(self, customer_id, objectify=True):
         """ Used for EARN's Banking Test API
         """
         # base API url
@@ -69,6 +69,8 @@ class AggcatClient(object):
         # Beta objectification
         self.objectify = objectify
 
+	    # Unique user ID
+	    self.customer_id = customer_id
 
     def _build_url(self, path):
         """Build a url from a string path"""
