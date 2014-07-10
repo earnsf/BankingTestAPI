@@ -69,8 +69,8 @@ class AggcatClient(object):
         # Beta objectification
         self.objectify = objectify
 
-	    # Unique user ID
-	    self.customer_id = customer_id
+	# Unique user ID
+	self.customer_id = customer_id
 
     def _build_url(self, path):
         """Build a url from a string path"""
