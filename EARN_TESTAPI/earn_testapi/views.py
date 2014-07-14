@@ -305,8 +305,10 @@ def discover_add_accounts(request):
     """
     input_creds = {}
     root = etree.parse(io.BytesIO(request.body))
-    names = root.xpath('//ns:name', namespaces={'ns':'http://schema.intuit.com/platform/fdatafeed/institutionlogin/v1'})
-    values = root.xpath('//ns:value', namespaces={'ns':'http://schema.intuit.com/platform/fdatafeed/institutionlogin/v1'})
+    expr = "//*[local-name() = 'name']"
+    names = root.xpath(expr)
+    expr = "//*[local-name() = 'value']"
+    values = root.xpath(expr)
     if len(names) != len(values):
         return Response(status_code=400, body="Did not format XML file correctly. Could not find element.\n")
     for i in range(len(names)):
@@ -534,8 +536,10 @@ def update_login_info(request):
     """
     input_creds = {}
     root = etree.parse(io.BytesIO(request.body))
-    names = root.xpath('//ns:name', namespaces={'ns':'http://schema.intuit.com/platform/fdatafeed/institutionlogin/v1'})
-    values = root.xpath('//ns:value', namespaces={'ns':'http://schema.intuit.com/platform/fdatafeed/institutionlogin/v1'})
+    expr = "//*[local-name() = 'name']"    
+    names = root.xpath(expr)
+    expr = "//*[local-name() = 'value']"
+    values = root.xpath(expr)
     if len(names) != len(values):
         return Response(status_code=400, body="Did not format XML file correctly. Could not find element.\n")
     for i in range(len(names)):

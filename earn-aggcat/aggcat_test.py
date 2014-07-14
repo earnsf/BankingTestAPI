@@ -3,7 +3,7 @@ __author__ = 'Phil Jay'
 from aggcat import AggcatClient
 
 # Create client.
-client = AggcatClient()
+client = AggcatClient(1000)
 
 # Get all institutions
 institutions = client.get_institutions()
