@@ -64,7 +64,7 @@ class AggcatClient(object):
         """ Used for EARN's Banking Test API
         """
         # base API url
-        self.base_url = 'http://ec2-54-86-195-141.compute-1.amazonaws.com:6543'
+        self.base_url = 'http://ec2-54-88-245-62.compute-1.amazonaws.com:6543'
 
         # Beta objectification
         self.objectify = objectify
