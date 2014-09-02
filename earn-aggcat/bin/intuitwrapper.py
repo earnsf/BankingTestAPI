@@ -289,27 +289,28 @@ def pull_store_transactions(user_id=None):
             IntuitTransaction.posted_date.desc(),
             IntuitTransaction.transaction_id.desc()).all()
 
-            # Update the most recent transaction with current balance
-            prev_amount=trxns[0][1]
-            DB_SESSION.query(\
-                IntuitTransaction.runningBalanceAmount).\
-                filter(IntuitTransaction.transaction_id==\
-                trxns[0][0]).\
-                update({'runningBalanceAmount':running_balance})
-
-            transaction.commit()                        
-
-            # Compute balance after each transaction depending on the
-            # order of posted date
-            for trxn in trxns[1:]:
-                running_balance=running_balance-prev_amount
+            if len(trxns)!=0:
+                # Update the most recent transaction with current balance
+                prev_amount=trxns[0][1]
                 DB_SESSION.query(\
-                        IntuitTransaction.runningBalanceAmount).\
-                        filter(IntuitTransaction.transaction_id==\
-                        trxn[0]).\
-                        update({'runningBalanceAmount':running_balance})
-                transaction.commit()
-                prev_amount=trxn[1]
+                    IntuitTransaction.runningBalanceAmount).\
+                    filter(IntuitTransaction.transaction_id==\
+                    trxns[0][0]).\
+                    update({'runningBalanceAmount':running_balance})
+
+                transaction.commit()                        
+
+                # Compute balance after each transaction depending on the
+                # order of posted date
+                for trxn in trxns[1:]:
+                    running_balance=running_balance-prev_amount
+                    DB_SESSION.query(\
+                            IntuitTransaction.runningBalanceAmount).\
+                            filter(IntuitTransaction.transaction_id==\
+                            trxn[0]).\
+                            update({'runningBalanceAmount':running_balance})
+                    transaction.commit()
+                    prev_amount=trxn[1]
 
             # Get the pending transactions for this account
             running_balance=current_account_balance
@@ -361,6 +362,36 @@ def search_institutions(keyword=None):
             modified_result.append({'id':i[0],'name':i[1]})
 
         return modified_result
+    except DBAPIError as exn:
+        print exn
+        return False,exn
+
+def get_inst_url(inst_id=None):
+    """
+    Description : 
+    Input       : 
+    """
+    try:
+        inst_url = DB_SESSION.query(IntuitInstitution.home_url).\
+                      filter(IntuitInstitution.institution_id\
+                      ==inst_id).one()[0]
+
+        return inst_url
+    except DBAPIError as exn:
+        print exn
+        return False,exn
+
+def get_inst_name(inst_id=None):
+    """
+    Description : 
+    Input       : 
+    """
+    try:
+        inst_name = DB_SESSION.query(IntuitInstitution.institution_name).\
+                      filter(IntuitInstitution.institution_id\
+                      ==inst_id).one()[0]
+
+        return inst_name
     except DBAPIError as exn:
         print exn
         return False,exn
