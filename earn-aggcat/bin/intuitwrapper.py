@@ -1,9 +1,9 @@
 """
 File name   : intuit_wrapper.py
-Author      : Ravichandra
-Edited	    : Phil Jay Kwon 
+Edited      : Phil Jay Kwon
+              Ravichandra
 Description : Functionality to access savers accounts and transaction data
-              using EARN Test API
+              using  EARN TEST API
 """
 # Import the required functions and modules
 from aggcat import AggcatClient
@@ -57,6 +57,15 @@ class IntuitWrapper(object):
     """
     def __init__(self,user_id=None):
         # Create a client to connect to Intuit API
+        """
+        self.client = AggcatClient(
+            configuration.INTUIT_OAUTH_CONSUMER_KEY,
+            configuration.INTUIT_OATH_CONSUMER_SECRET,
+            configuration.INTUIT_SAML_IDENTITY_PROVIDER_ID,
+            str(user_id),
+            configuration.INTUIT_KEY_PATH
+        )
+        """
         self.client = AggcatClient(str(user_id))
 
     def get_institutions(self):
@@ -78,7 +87,7 @@ class IntuitWrapper(object):
         Output      : Various accounts linked to same institution.
         """
         try:
-            return self.client.get_account(account_id).content
+            return self.client.get_account(account_id)
         except Exception as exn:
             print exn
             return False,exn
@@ -117,7 +126,7 @@ class IntuitWrapper(object):
         """
         try:
             return self.client.discover_and_add_accounts(institution_id,\
-            **credentials).content
+            **credentials)
         except Exception as exn:
             print exn
             return False,exn
@@ -148,17 +157,25 @@ class IntuitWrapper(object):
 
     def get_account_balance_and_real_number(self,account_id=None):
         """
-        Description : Get account balance and and real account number. 
+        Description : Get account balance and and real account number.
         Input       : Account Id
         Output      : Account balance and and real account number.
         """
         try:
-            account_content = self.client.get_account(account_id).content
+            account_object = self.client.get_account(account_id)
+            if configuration.MOCK_ENABLED == 0:
+                account_content = account_object.content
+            else:
+                if hasattr(account_object.content,"BankingAccount"):
+                    account_content = account_object.content.BankingAccount
+                else:
+                    account_content = account_object.content
+
             account_balance = account_content.balance_amount
             if hasattr(account_content,"account_number_real"):
                 account_real_number = account_content.account_number_real
                 return account_balance,account_real_number
-            return account_balance,False                
+            return account_balance,False
         except Exception as exn:
             print exn
             return False,exn
@@ -204,10 +221,17 @@ def pull_store_transactions(user_id=None):
     try:    
         account_id = get_savings_account_id(user_id)
         account=IntuitWrapper(user_id).get_single_account(account_id)
+        if configuration.MOCK_ENABLED == 0:
+            account = account.content
+        else:
+            if hasattr(account.content,"BankingAccount"):
+                account = account.content.BankingAccount
+            else:
+                account = account.content
+
         current_account_balance=Decimal(account.balance_amount)
         if type(account)==tuple and account[0] == False:
-            print "Not a valid account"
-            return False, "Not a valid account"
+            return False, account.aggr_status_code
        
     except Exception as exn:
         print exn
@@ -222,6 +246,7 @@ def pull_store_transactions(user_id=None):
             transactions = IntuitWrapper(user_id).get_saver_transactions(\
                            account_id, user_start_date,\
                     datetime.datetime.today().strftime("%Y-%m-%d"))
+
             if hasattr(transactions,"institution_transaction_id"):
                 transaction_list=[transactions]
             elif not hasattr(transactions,"_list") or\
@@ -239,46 +264,42 @@ def pull_store_transactions(user_id=None):
             return False, exn
 
         try:
+            # Delete all the values from transactions table and get the latest
+            # data for current user since transactions are retrieved
+            # successfully
+            DB_SESSION.query(IntuitTransaction).\
+            filter(IntuitTransaction.account_id == account_id).delete()
+       
             for txn in transaction_list:
-                # Check whether there is a row with same transaction id
-                # present already
-                transaction_present = len(DB_SESSION.query(\
-                  IntuitTransaction.transaction_id,\
-                  IntuitTransaction.account_id).\
-                  filter(IntuitTransaction.transaction_id == txn.id, \
-                  IntuitTransaction.account_id == account_id).all())
+                        
+                if txn.pending.lower() == 'false':
+                    # Convert pending value to an integer
+                    pending = 0
 
-                if transaction_present == 0:
-                            
-                    if txn.pending.lower() == 'false':
-                        # Convert pending value to an integer
-                        pending = 0
+                    # Create database object for completed transactions
+                    transaction_database = IntuitTransaction(\
+                        account_id=account_id,\
+                        transaction_id=txn.id,\
+                        payee_name=txn.payee_name,\
+                        posted_date=txn.posted_date[:-6],\
+                        pending=pending, amount=txn.amount,)
 
+                elif txn.pending.lower() == 'true':
+                    # Convert pending value to an integer
+                    pending = 1
+                    # Create database object for pending transactions
+                    transaction_database = IntuitTransaction(\
+                        account_id=account_id,\
+                        transaction_id=txn.id,\
+                        payee_name=txn.payee_name,\
+                        user_date=txn.user_date[:-6],\
+                        pending=pending, amount=txn.amount,)
 
-                        # Create database object for completed transactions
-                        transaction_database = IntuitTransaction(\
-                          account_id=account_id,\
-                          transaction_id=txn.id,\
-                          payee_name=txn.payee_name,\
-                          posted_date=txn.posted_date[:-6],\
-                          pending=pending, amount=txn.amount,)
-
-                    elif txn.pending.lower() == 'true':
-                        # Convert pending value to an integer
-                        pending = 1
-                        # Create database object for pending transactions
-                        transaction_database = IntuitTransaction(\
-                          account_id=account_id,\
-                          transaction_id=txn.id,\
-                          payee_name=txn.payee_name,\
-                          user_date=txn.user_date[:-6],\
-                          pending=pending, amount=txn.amount,)
-
-                    # Commit transaction to the database
-                    DB_SESSION.add(transaction_database)
-                    DB_SESSION.flush()
-                    DB_SESSION.refresh(transaction_database)
-                    transaction.commit()
+                # Commit transaction to the database
+                DB_SESSION.add(transaction_database)
+                DB_SESSION.flush()
+                DB_SESSION.refresh(transaction_database)
+                transaction.commit()
 
             # Get the processed transactions for this account
             running_balance=current_account_balance
