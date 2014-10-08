@@ -172,8 +172,8 @@ class IntuitWrapper(object):
                     account_content = account_object.content
 
             account_balance = account_content.balance_amount
-            if hasattr(account_content,"account_number_real"):
-                account_real_number = account_content.account_number_real
+            if hasattr(account_content,"account_number"):
+                account_real_number = account_content.account_number
                 return account_balance,account_real_number
             return account_balance,False
         except Exception as exn:
