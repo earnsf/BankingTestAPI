@@ -47,7 +47,7 @@ class AggcatClient(object):
             'oauth_consumer_key',
             'oauth_consumer_secret',
             'saml_identity_provider_id',
-            'customer_id',
+            'castomer_id',
             '/path/to/x509/appname.key'
         )
 
@@ -359,7 +359,7 @@ class AggcatClient(object):
 
         login_xml = self._generate_login_xml(**credentials)
         return self._make_request(
-            'institutions/%s/logins' % institution_id,
+            '%s/institutions/%s/logins' % (self.customer_id ,institution_id),
             'POST',
             login_xml
         )
@@ -394,7 +394,7 @@ class AggcatClient(object):
             Also note that when the XML gets objectified XML attributes like ``accountId`` get converted
             to ``account_id``
         """
-        return self._make_request('accounts')
+        return self._make_request('%s/accounts'%self.customer_id)
 
     def get_login_accounts(self, login_id):
         """Get a list of account belonging to a login
@@ -632,7 +632,7 @@ class AggcatClient(object):
 
         """
         return self._make_request(
-            'accounts/%s' % account_id,
+            '%s/accounts/%s' % (self.customer_id, account_id),
             'DELETE'
         )
 
