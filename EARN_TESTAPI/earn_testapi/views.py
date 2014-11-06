@@ -613,7 +613,8 @@ def update_account_type(request):
         return Response(status_code=400, body='Given account type is not one of the possible banking account types!\n')
     return Response(status_code=200)
 
-delete_account = Service(name='deleteAccount', path='/{customer_id}/accounts/{account_id}')
+customer_account_delete = Service(name='Customer Account Delete', path='/{customer_id}/accounts/{account_id}')
+@customer_account_delete.delete()
 def delete_account(request):
     """This call is used to delete a user's account.
 
@@ -625,9 +626,13 @@ def delete_account(request):
             raise Exception("ID NOT FOUND")
     except Exception:
         return Response(status_code=404, body='Account ID not found\n')
+    """
+    # Not deleting transactions as 
+    # this is only for mock purpose
     transactions = DBSession.query(Transactions).filter_by(accountId = account_id)
     if (len(transactions.all())) != 0:
         transactions.delete()
+    """
     DBSession.query(CustomerAccounts).filter_by(accountId = int(account_id)).delete()
     return Response(status_code=200)
 
