@@ -18,7 +18,8 @@ from .models import (
     Credentials,
     Logins,
     Accounts,
-    Transactions
+    Transactions,
+    CustomerAccounts,
     )
 
 # Using Pyramid Framework to test initializations
@@ -77,10 +78,11 @@ def add_institution(request):
         DBSession.execute(clause)
         DBSession.execute("commit")
     _data.clear()
-    
-    # Adding keys
+
+    # Adding key
     expr = "//*[local-name() = 'key']"
     keys = root.xpath(expr)
+    
     if len(keys) != 0:
         for key in keys:
             for child in key.getchildren():
@@ -93,7 +95,7 @@ def add_institution(request):
                 DBSession.execute(clause)
                 DBSession.execute("commit")  
                 _data.clear()
-    
+   
     # Return the generated institution ID
     response = etree.Element("Institution_ID")
     response.text = str(this_institutionId)
@@ -272,7 +274,7 @@ def add_login_credentials(request):
 
     return Response(status_code=200, body=etree.tostring(response)+"\n")
 
-def create_accounts_tree(value=None, id=False):
+def create_accounts_tree(value=None, id=False, cid=None):
     """ Creates a etree of accounts filtered by login ID
 
     :param value: Value at the login ID
@@ -283,6 +285,9 @@ def create_accounts_tree(value=None, id=False):
         accounts_query = DBSession.query(Accounts)
     elif id:
         accounts_query = DBSession.query(Accounts).filter_by(accountId = value)
+    elif cid:
+        cust_accts = [i.accountId for i in DBSession.query(CustomerAccounts).filter_by(customerId = cid).all()]
+        accounts_query = DBSession.query(Accounts).filter(Accounts.accountId.in_(cust_accts))
     else:
         accounts_query = DBSession.query(Accounts).filter_by(institutionLoginId = value)
     for account in accounts_query:
@@ -294,7 +299,7 @@ def create_accounts_tree(value=None, id=False):
                  label.text = str(val)
     return accountList
 
-discover_and_add = Service(name='discoverAndAddAccounts', path='/institutions/{institution_id}/logins')
+discover_and_add = Service(name='discoverAndAddAccounts', path='/{customer_id}/institutions/{institution_id}/logins')
 
 @discover_and_add.post(content_type="application/xml", accept="text/html")
 def discover_add_accounts(request):
@@ -353,10 +358,20 @@ def discover_add_accounts(request):
     err_msg = check_query(Accounts, user_identifier, False, False, True)
     if err_msg != "":
         return Response(status_code=201, body='')
+    customer_id = int(request.matchdict['customer_id'])
+    accounts_added = DBSession.query(Accounts.accountId).filter_by(institutionLoginId = user_identifier).all()
+    for i in accounts_added:
+	try:
+	    clause= "insert into customer_accounts (customerId, accountId) values (%d,%d)" % (customer_id, int(i[0]))
+	    DBSession.execute(clause)
+	    DBSession.execute("commit")
+	except:
+      	    pass
+    
     response = create_accounts_tree(user_identifier)
     return Response(status_code=201, body=etree.tostring(response, pretty_print=True))
 
-customer_accounts = Service(name='Customer Accounts', path='/accounts')
+customer_accounts = Service(name='Customer Accounts', path='/{customer_id}/accounts')
 
 @customer_accounts.get()
 def get_accounts(request):
@@ -364,10 +379,11 @@ def get_accounts(request):
     user making the call.
 
     """
-    accounts_query = DBSession.query(Accounts).all()
+    customer_id = request.matchdict['customer_id']
+    accounts_query = DBSession.query(CustomerAccounts).filter_by(customerId = customer_id).all()
     if len(accounts_query) == 0:
         return Response(status_code=200, body="")
-    response = create_accounts_tree()
+    response = create_accounts_tree(False,False,cid=customer_id)
     return Response(status_code=200, body=etree.tostring(response, pretty_print=True))
 
 login_accounts = Service(name='Login Accounts', path='/logins/{login_id}/accounts')
@@ -597,14 +613,14 @@ def update_account_type(request):
         return Response(status_code=400, body='Given account type is not one of the possible banking account types!\n')
     return Response(status_code=200)
 
-@customer_account.delete()
+delete_account = Service(name='deleteAccount', path='/{customer_id}/accounts/{account_id}')
 def delete_account(request):
     """This call is used to delete a user's account.
 
     """
     account_id = request.matchdict['account_id']
     try:
-        try_query = DBSession.query(Accounts).filter_by(accountId = int(account_id))
+        try_query = DBSession.query(CustomerAccounts).filter_by(accountId = int(account_id))
         if len(try_query.all()) == 0:
             raise Exception("ID NOT FOUND")
     except Exception:
@@ -612,7 +628,7 @@ def delete_account(request):
     transactions = DBSession.query(Transactions).filter_by(accountId = account_id)
     if (len(transactions.all())) != 0:
         transactions.delete()
-    DBSession.query(Accounts).filter_by(accountId = int(account_id)).delete()
+    DBSession.query(CustomerAccounts).filter_by(accountId = int(account_id)).delete()
     return Response(status_code=200)
 
 conn_err_msg = """\

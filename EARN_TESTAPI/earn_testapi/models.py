@@ -32,3 +32,6 @@ class Accounts(DeferredReflection, Base):
 
 class Transactions(DeferredReflection, Base):
     __tablename__ = 'transactions'
+
+class CustomerAccounts(DeferredReflection, Base):
+    __tablename__ = 'customer_accounts'
