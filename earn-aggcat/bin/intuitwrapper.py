@@ -230,12 +230,15 @@ def pull_store_transactions(user_id=None):
                 account = account.content.BankingAccount
             else:
                 account = account.content
+        if account.aggr_status_code != '0':
+            return False, account.aggr_status_code
 
         current_account_balance=Decimal(account.balance_amount)
 
+        '''
         if type(account)==tuple and account[0] == False:
             return False, account.aggr_status_code
-
+        '''
     except Exception as exn:
         print exn
         return False,exn
