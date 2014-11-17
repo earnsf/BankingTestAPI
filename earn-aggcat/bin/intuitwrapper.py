@@ -1,9 +1,8 @@
 """
 File name   : intuit_wrapper.py
-Edited      : Phil Jay Kwon
-              Ravichandra
+Author      : Ravichandra
 Description : Functionality to access savers accounts and transaction data
-              using  EARN TEST API
+              using Intuit API
 """
 # Import the required functions and modules
 from aggcat import AggcatClient
@@ -38,6 +37,9 @@ METADATA = MetaData(bind=DB_SESSION.get_bind())
 # TODO: Replace all print statements with logger
 class User(BASE):
     __table__ = Table('users', METADATA, autoload=True)
+
+class Rewardplans(BASE):
+    __table__ = Table('reward_plans', METADATA, autoload=True)
 
 class IntuitInstitution(BASE):
     """
@@ -74,7 +76,7 @@ class IntuitWrapper(object):
         Input           : None.
         Output          : Financial institution details.
         """
-        try:        
+        try:
             return self.client.get_institutions().content
         except Exception as exn:
             print exn
@@ -218,7 +220,7 @@ def pull_store_transactions(user_id=None):
     Input       : None.
     Output      : Returns True if successful else returns False.
     """
-    try:    
+    try:
         account_id = get_savings_account_id(user_id)
         account=IntuitWrapper(user_id).get_single_account(account_id)
         if configuration.MOCK_ENABLED == 0:
@@ -230,9 +232,10 @@ def pull_store_transactions(user_id=None):
                 account = account.content
 
         current_account_balance=Decimal(account.balance_amount)
+
         if type(account)==tuple and account[0] == False:
             return False, account.aggr_status_code
-       
+
     except Exception as exn:
         print exn
         return False,exn
@@ -300,6 +303,13 @@ def pull_store_transactions(user_id=None):
                 DB_SESSION.flush()
                 DB_SESSION.refresh(transaction_database)
                 transaction.commit()
+                """
+                Notify User if txn type is withdrawal(otherthan FEE,SERVICE
+                CHARGES etc.,)
+                """
+                if float(txn.amount) < 0.0 and txn.pending.lower() == 'false':
+                    verify_txn_and_notify_saver(user_id, txn.amount,\
+                        txn.posted_date[:10], txn.payee_name)
 
             # Get the processed transactions for this account
             running_balance=current_account_balance
@@ -417,3 +427,54 @@ def get_inst_name(inst_id=None):
         print exn
         return False,exn
 
+def verify_txn_and_notify_saver(user_id, amount, posted_date, description):
+
+    """
+    Description : Verify withdrawal transactions and notify the Saver
+                  regarding program restart.
+    """
+
+    try:
+        word_list = [word.strip() for word in configuration.fee_phrases.split(',')]
+
+        for word in word_list:
+            if word in description.lower():
+                return
+        if  (posted_date == (datetime.datetime.today()-\
+               datetime.timedelta(days=1)).strftime("%Y-%m-%d")) or\
+                (posted_date ==\
+                        (datetime.datetime.today().strftime("%Y-%m-%d"))):
+
+            #Check no_of_restarts and if it exceeds threshold, exit from the
+            #program
+            no_of_restarts, reward_plan_id  =  DB_SESSION.query(
+                User.no_of_restarts, User.reward_plan_id).filter(
+                User.id == user_id).one()
+            no_of_allowed_restarts = DB_SESSION.query(
+                Rewardplans.no_of_allowed_restarts).filter(
+                Rewardplans.id==reward_plan_id).first()[0]
+
+            time_stamp_now = datetime.datetime.today()
+            if no_of_restarts == no_of_allowed_restarts:
+                DB_SESSION.query(User).filter(User.id ==
+                        user_id).update({User.user_status:'exited',
+                        User.exit_reason:'withdrawal',
+                        User.user_status_updated_at:time_stamp_now})
+                transaction.commit()
+                user = DB_SESSION.query(User).filter(User.id
+                                                  == user_id).one()
+                notifications.Notification.alert_user_about_program_exit(user)
+            else:
+                #Saver made a withdrawal. Change user_status in DB to 'closed'
+                DB_SESSION.query(User).filter(User.id ==
+                    user_id).update({User.no_of_restarts: no_of_restarts + 1,
+                    User.user_status:'closed',
+                    User.exit_reason:'withdrawal',
+                    User.user_status_updated_at:time_stamp_now})
+                transaction.commit()
+                user = DB_SESSION.query(User).filter(User.id
+                                                  == user_id).one()
+                notifications.Notification.alert_user_about_program_restart(user)
+
+    except Exception as exn:
+        print exn
