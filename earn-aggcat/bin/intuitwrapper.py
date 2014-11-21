@@ -230,8 +230,9 @@ def pull_store_transactions(user_id=None):
                 account = account.content.BankingAccount
             else:
                 account = account.content
-        if account.aggr_status_code != '0':
-            return False, account.aggr_status_code
+	if configuration.MOCK_ENABLED == 0:
+            if account.aggr_status_code != '0':
+                return False, account.aggr_status_code
 
         current_account_balance=Decimal(account.balance_amount)
 
