@@ -20,7 +20,6 @@ import transaction
 import datetime
 import configuration
 import sqlalchemy
-import notifications
 
 # Create a database engine and session
 DB_SESSION = scoped_session(sessionmaker(extension=\
@@ -60,14 +59,16 @@ class IntuitWrapper(object):
     """
     def __init__(self,user_id=None):
         # Create a client to connect to Intuit API
-        self.client = AggcatClient(
-            configuration.INTUIT_OAUTH_CONSUMER_KEY,
-            configuration.INTUIT_OATH_CONSUMER_SECRET,
-            configuration.INTUIT_SAML_IDENTITY_PROVIDER_ID,
-            str(user_id),
-            configuration.INTUIT_KEY_PATH
-        )
-        #self.client = AggcatClient(str(user_id))
+        if configuration.MOCK_ENABLED == 0:
+            self.client = AggcatClient(
+                configuration.INTUIT_OAUTH_CONSUMER_KEY,
+                configuration.INTUIT_OATH_CONSUMER_SECRET,
+                configuration.INTUIT_SAML_IDENTITY_PROVIDER_ID,
+                str(user_id),
+                configuration.INTUIT_KEY_PATH
+            )
+        else:
+            self.client = AggcatClient(str(user_id))
 
     def get_institutions(self):
         """
@@ -443,42 +444,41 @@ def verify_txn_and_notify_saver(user_id, amount, posted_date, description):
         for word in word_list:
             if word in description.lower():
                 return
-        """
         if  (posted_date == (datetime.datetime.today()-\
                datetime.timedelta(days=1)).strftime("%Y-%m-%d")) or\
                 (posted_date ==\
                         (datetime.datetime.today().strftime("%Y-%m-%d"))):
-        """
-        #Check no_of_restarts and if it exceeds threshold, exit from the
-        #program
-        no_of_restarts, reward_plan_id  =  DB_SESSION.query(
-            User.no_of_restarts, User.reward_plan_id).filter(
-            User.id == user_id).one()
-        no_of_allowed_restarts = DB_SESSION.query(
-            Rewardplans.no_of_allowed_restarts).filter(
-            Rewardplans.id==reward_plan_id).first()[0]
 
-        time_stamp_now = datetime.datetime.today()
-        if no_of_restarts == no_of_allowed_restarts:
-            DB_SESSION.query(User).filter(User.id ==
-                    user_id).update({User.user_status:'exited',
+            #Check no_of_restarts and if it exceeds threshold, exit from the
+            #program
+            no_of_restarts, reward_plan_id  =  DB_SESSION.query(
+                User.no_of_restarts, User.reward_plan_id).filter(
+                User.id == user_id).one()
+            no_of_allowed_restarts = DB_SESSION.query(
+                Rewardplans.no_of_allowed_restarts).filter(
+                Rewardplans.id==reward_plan_id).first()[0]
+
+            time_stamp_now = datetime.datetime.today()
+            if no_of_restarts == no_of_allowed_restarts:
+                DB_SESSION.query(User).filter(User.id ==
+                        user_id).update({User.user_status:'exited',
+                        User.exit_reason:'withdrawal',
+                        User.user_status_updated_at:time_stamp_now})
+                transaction.commit()
+                user = DB_SESSION.query(User).filter(User.id
+                                                  == user_id).one()
+                notifications.Notification.alert_user_about_program_exit(user)
+            else:
+                #Saver made a withdrawal. Change user_status in DB to 'closed'
+                DB_SESSION.query(User).filter(User.id ==
+                    user_id).update({User.no_of_restarts: no_of_restarts + 1,
+                    User.user_status:'closed',
                     User.exit_reason:'withdrawal',
                     User.user_status_updated_at:time_stamp_now})
-            transaction.commit()
-            user = DB_SESSION.query(User).filter(User.id
-                                                == user_id).one()
-            notifications.Notification.alert_user_about_program_exit(user)
-        else:
-            #Saver made a withdrawal. Change user_status in DB to 'closed'
-            DB_SESSION.query(User).filter(User.id ==
-                user_id).update({User.no_of_restarts: no_of_restarts + 1,
-                User.user_status:'closed',
-                User.exit_reason:'withdrawal',
-                User.user_status_updated_at:time_stamp_now})
-            transaction.commit()
-            user = DB_SESSION.query(User).filter(User.id
-                                                == user_id).one()
-            notifications.Notification.alert_user_about_program_restart(user)
+                transaction.commit()
+                user = DB_SESSION.query(User).filter(User.id
+                                                  == user_id).one()
+                notifications.Notification.alert_user_about_program_restart(user)
 
     except Exception as exn:
         print exn
